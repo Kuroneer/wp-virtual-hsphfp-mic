@@ -24,7 +24,7 @@ wp-virtual-hsphfp-mic.lua` and run it whenever you like it with
 To install it as a script, copy it to your wireplumber scripts directory and
 load it from the config. E.g (to install it globally):
 ```shell
-sudo wget https://raw.githubusercontent.com/Kuroneer/wp-virtual-hsphfp-mic/master/wp-virtual-hsphfp-mic.lua -o /usr/share/wireplumber/scripts/wp-virtual-hsphfp-mic.lua
+sudo wget https://raw.githubusercontent.com/Kuroneer/wp-virtual-hsphfp-mic/master/wp-virtual-hsphfp-mic.lua -O /usr/share/wireplumber/scripts/wp-virtual-hsphfp-mic.lua
 sudo tee <<< 'load_script("wp-virtual-hsphfp-mic.lua")' /usr/share/wireplumber/bluetooth.lua.d/99-load-hsphfp-virtual-mic.lua
 ```
 
