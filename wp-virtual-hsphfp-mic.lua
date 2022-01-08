@@ -100,6 +100,11 @@ local function generate_change_profile_based_on_links_fun(device, profile_to_ind
   -- Keeps a reference to device as a upvalue, but with the device removal
   -- the om is removed too
   return function(om)
+    if virtual_sources_out_port_om[device["bound-id"]] ~= om then
+      -- The active OM is not the one this callback is for, it's going to be
+      -- deleted shortly
+      return
+    end
     local n_objects = om:get_n_objects()
     if n_objects == 0 then
       Log.debug(device, "Change to a2dp")
@@ -181,7 +186,8 @@ sources_om:connect("object-added", function(_, source)
   -- A Source was added with its device matching one of
   -- the interesting ones
   -- It's assumed that the device event is always triggered
-  -- before this source's
+  -- before this source's and that if source gets recreated,
+  -- the object-down is triggered before the object-added
   Log.debug(source, "Virtual source found")
   real_sources_id[device_id] = source["bound-id"]
   source:connect("ports-changed", function(source)
