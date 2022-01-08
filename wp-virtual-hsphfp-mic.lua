@@ -96,7 +96,7 @@ local function change_profile_in_device_node(device, index)
   device:set_param("Profile", Pod.Object{"Spa:Pod:Object:Param:Profile", "Profile", index = index})
 end
 
-local function generate_change_profile_based_on_links_fun(device, profile_to_index)
+local function generate_change_profile_based_on_links_fun(device, profile_to_index, decreasing)
   -- Keeps a reference to device as a upvalue, but with the device removal
   -- the om is removed too
   return function(om)
@@ -104,7 +104,7 @@ local function generate_change_profile_based_on_links_fun(device, profile_to_ind
     if n_objects == 0 then
       Log.debug(device, "Change to a2dp")
       change_profile_in_device_node(device, profile_to_index["a2dp-sink"])
-    elseif n_objects == 1 then
+    elseif n_objects == 1 and not decreasing then
       Log.debug(device, "Change to HSP/HFP")
       change_profile_in_device_node(device, profile_to_index["headset-head-unit"])
     end
@@ -150,10 +150,9 @@ bt_devices_om:connect("object-added", function(_, device)
             }
           }
           virtual_sources_out_port_om[device_id] = om
-          local change_profile_based_on_links = generate_change_profile_based_on_links_fun(device, profile_to_index)
-          om:connect("object-added", change_profile_based_on_links)
-          om:connect("object-removed", change_profile_based_on_links)
-          om:connect("installed", change_profile_based_on_links)
+          om:connect("object-added", generate_change_profile_based_on_links_fun(device, profile_to_index))
+          om:connect("object-removed", generate_change_profile_based_on_links_fun(device, profile_to_index, true))
+          om:connect("installed", generate_change_profile_based_on_links_fun(device, profile_to_index))
           om:activate()
         else
           virtual_sources_out_port_om[device_id] = nil
