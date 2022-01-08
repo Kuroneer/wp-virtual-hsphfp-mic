@@ -135,7 +135,8 @@ bt_devices_om:connect("object-added", function(_, device)
       virtual_sources_in_port_id[device_id] = false
       node:connect("ports-changed", function(node)
         Log.debug(device, "Dummy HSP/HFP node ports changed")
-        virtual_sources_in_port_id[device_id] = node:lookup_port{Constraint{"port.direction", "=", "in"}}["bound-id"]
+        local in_port = node:lookup_port{Constraint{"port.direction", "=", "in"}}
+        virtual_sources_in_port_id[device_id] = in_port and in_port["bound-id"]
         maybe_link(device_id)
 
         -- Monitor number of links for clients in the virtual node
@@ -186,7 +187,8 @@ sources_om:connect("object-added", function(_, source)
   real_sources_id[device_id] = source["bound-id"]
   source:connect("ports-changed", function(source)
     local device_id = tonumber(source.properties['device.id'])
-    real_sources_port_id[device_id] = source:lookup_port{Constraint{"port.direction", "=", "out"}}["bound-id"]
+    local port = source:lookup_port{Constraint{"port.direction", "=", "out"}}
+    real_sources_port_id[device_id] = port and port["bound-id"]
     Log.debug(source, "Real HSP/HFP node ports changed")
     maybe_link(device_id)
   end)
