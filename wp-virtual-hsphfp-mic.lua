@@ -69,6 +69,14 @@ local real_sources_port_id  = {}
 -- BT Device Id to link (keeps the reference alive)
 local links  = {}
 
+local function replace_destroy(table, key, value)
+  local obj = table[key]
+  if type(obj) == "userdata" then
+    obj:request_destroy()
+  end
+  table[key] = value
+end
+
 local function maybe_link(device_id)
   local virtual_source = virtual_sources[device_id]
   local virtual_source_port_id = virtual_sources_in_port_id[device_id]
@@ -88,7 +96,7 @@ local function maybe_link(device_id)
       Log.debug(link, "Ready")
     end
   else
-    links[device_id] = nil
+    replace_destroy(links, device_id, nil)
   end
 end
 
@@ -170,10 +178,10 @@ bt_devices_om:connect("object-added", function(_, device)
 end)
 bt_devices_om:connect("object-removed", function(_, device)
   local device_id = device["bound-id"]
-  virtual_sources[device_id] = nil
+  replace_destroy(virtual_sources, device_id, nil)
   virtual_sources_in_port_id[device_id] = nil
-  virtual_sources_out_port_om[device_id] = nil
   maybe_link(device_id)
+  virtual_sources_out_port_om[device_id] = nil
 end)
 
 -- When both the virtual node and the headset profile node exist,
