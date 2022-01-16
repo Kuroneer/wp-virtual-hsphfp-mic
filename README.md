@@ -11,7 +11,7 @@ Thus, you only need to configure the virtual mic as a source in your application
 and when these applications connect to the virtual mic the profile is automatically
 changed.
 
-This script has been tested to work with wireplumber version 0.4.5
+This script has been tested to work with wireplumber version 0.4.7
 
 ## Getting Started
 
@@ -24,9 +24,13 @@ wp-virtual-hsphfp-mic.lua` and run it whenever you like it with
 To install it as a script, copy it to your wireplumber scripts directory and
 load it from the config. E.g (to install it globally):
 ```shell
-sudo wget https://raw.githubusercontent.com/Kuroneer/wp-virtual-hsphfp-mic/master/wp-virtual-hsphfp-mic.lua -O /usr/share/wireplumber/scripts/wp-virtual-hsphfp-mic.lua
-sudo tee <<< 'load_script("wp-virtual-hsphfp-mic.lua")' /usr/share/wireplumber/bluetooth.lua.d/99-load-hsphfp-virtual-mic.lua
+sudo mkdir -p /etc/wireplumber/scripts
+sudo wget https://raw.githubusercontent.com/Kuroneer/wp-virtual-hsphfp-mic/master/wp-virtual-hsphfp-mic.lua -O /etc/wireplumber/scripts/wp-virtual-hsphfp-mic.lua
+sudo mkdir -p /etc/wireplumber/bluetooth.lua.d
+sudo tee <<< 'load_script("wp-virtual-hsphfp-mic.lua")' /etc/wireplumber/bluetooth.lua.d/99-load-hsphfp-virtual-mic.lua
 ```
+
+You can check the proper locations for the scripts in [the doc](https://pipewire.pages.freedesktop.org/wireplumber/configuration/locations.html)
 
 ## Authors
 
