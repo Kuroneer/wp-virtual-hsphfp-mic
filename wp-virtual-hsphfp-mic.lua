@@ -40,6 +40,23 @@
 
 ]]
 
+local default_config = {profile_debounce_time_ms = 1000} -- setmetatable unavailable :(
+local config = ... or {}
+for k, v in pairs(default_config) do
+  if type(v) == "number" then
+    config[k] = tonumber(config[k]) or v
+  elseif type(v) == "boolean" then
+    local config_v = config[k]
+    if type(config_v) == "boolean" then
+    elseif config_v == "true" then
+      config[k] = true
+    elseif config_v == "false" then
+      config[k] = false
+    else
+      config[k] = v
+    end
+  end
+end
 
 sources_om = ObjectManager {
   Interest {
@@ -60,19 +77,29 @@ bt_devices_om = ObjectManager {
 local virtual_sources = {}
 -- BT Device Id to Virtual Source Port id
 local virtual_sources_in_port_id = {}
+
 -- BT Device Id to Virtual Source Out port OM (keeps the reference alive)
 local virtual_sources_out_port_om  = {}
+-- BT Device Id to profile change debounce timer (keeps the reference)
+local debounce_timers = {}
+
 -- BT Device Id to Real Source node id
 local real_sources_id = {}
 -- BT Device Id to Real Source Port id
 local real_sources_port_id  = {}
+
 -- BT Device Id to link (keeps the reference alive)
-local links  = {}
+local links = {}
 
 local function replace_destroy(table, key, value)
+  -- setmetatable unavailable :(
   local obj = table[key]
   if type(obj) == "userdata" then
-    obj:request_destroy()
+    if obj.request_destroy then
+      obj:request_destroy()
+    elseif obj.destroy then
+      obj:destroy()
+    end
   end
   table[key] = value
 end
@@ -101,7 +128,19 @@ local function maybe_link(device_id)
 end
 
 local function change_profile_in_device_node(device, index)
-  device:set_param("Profile", Pod.Object{"Spa:Pod:Object:Param:Profile", "Profile", index = index})
+  local callback = function()
+    Log.debug(device, "Execute the change")
+    device:set_param("Profile", Pod.Object{"Spa:Pod:Object:Param:Profile", "Profile", index = index})
+    replace_destroy(debounce_timers, device["bound-id"], nil)
+    return false
+  end
+
+  local timeout = config.profile_debounce_time_ms
+  if timeout > 0 then
+    replace_destroy(debounce_timers, device["bound-id"], Core.timeout_add(timeout, callback))
+  else
+    callback()
+  end
 end
 
 local function generate_change_profile_based_on_links_fun(device, profile_to_index, decreasing)
@@ -115,10 +154,10 @@ local function generate_change_profile_based_on_links_fun(device, profile_to_ind
     end
     local n_objects = om:get_n_objects()
     if n_objects == 0 then
-      Log.debug(device, "Change to a2dp")
+      Log.debug(device, "Schedule change to a2dp")
       change_profile_in_device_node(device, profile_to_index["a2dp-sink"])
     elseif n_objects == 1 and not decreasing then
-      Log.debug(device, "Change to HSP/HFP")
+      Log.debug(device, "Schedule change to HSP/HFP")
       change_profile_in_device_node(device, profile_to_index["headset-head-unit"])
     end
   end
@@ -169,6 +208,7 @@ bt_devices_om:connect("object-added", function(_, device)
           om:activate()
         else
           virtual_sources_out_port_om[device_id] = nil
+          replace_destroy(debounce_timers, device_id, nil)
         end
       end)
       node:activate(Features.ALL)
@@ -182,6 +222,7 @@ bt_devices_om:connect("object-removed", function(_, device)
   virtual_sources_in_port_id[device_id] = nil
   maybe_link(device_id)
   virtual_sources_out_port_om[device_id] = nil
+  replace_destroy(debounce_timers, device_id, nil)
 end)
 
 -- When both the virtual node and the headset profile node exist,

@@ -32,6 +32,17 @@ sudo tee <<< 'load_script("wp-virtual-hsphfp-mic.lua")' /etc/wireplumber/bluetoo
 
 You can check the proper locations for the scripts in [the doc](https://pipewire.pages.freedesktop.org/wireplumber/configuration/locations.html)
 
+### Configuration
+
+The following configuration items are available (shown with their defaults):
+* `profile_debounce_time_ms: 1000`: ms to wait before executing a profile change
+
+
+The configuration parameters can be provided to the script from the cli:
+`./wp-virtual-hsphfp-mic.lua profile_debounce_time_ms=4000`
+or from the configuration files:
+`sudo tee <<< 'load_script("wp-virtual-hsphfp-mic.lua", {profile_debounce_time_ms = 4000})' /etc/wireplumber/bluetooth.lua.d/99-load-hsphfp-virtual-mic.lua`
+
 ## Authors
 
 * **Jose M Perez Ramos** - [Kuroneer](https://github.com/Kuroneer)
