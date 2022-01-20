@@ -235,8 +235,7 @@ sources_om:connect("object-added", function(_, source)
   -- A Source was added with its device matching one of
   -- the interesting ones
   -- It's assumed that the device event is always triggered
-  -- before this source's and that if source gets recreated,
-  -- the object-down is triggered before the object-added
+  -- before this source's
   Log.debug(source, "Virtual source found")
   real_sources_id[device_id] = source["bound-id"]
   source:connect("ports-changed", function(source)
@@ -252,9 +251,11 @@ sources_om:connect("object-added", function(_, source)
 end)
 sources_om:connect("object-removed", function(_, source)
   local device_id = tonumber(source.properties['device.id'])
-  real_sources_id[device_id] = nil
-  real_sources_port_id[device_id] = nil
-  maybe_link(device_id)
+  if real_sources_id[device_id] == source["bound-id"] then
+    real_sources_id[device_id] = nil
+    real_sources_port_id[device_id] = nil
+    maybe_link(device_id)
+  end
 end)
 
 sources_om:activate()
