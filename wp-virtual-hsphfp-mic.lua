@@ -261,3 +261,38 @@ end)
 sources_om:activate()
 bt_devices_om:activate()
 
+
+-- Monitor default nodes
+metadata_om = ObjectManager {
+  Interest {
+    type = "Metadata",
+    Constraint{"metadata.name", "=", "default", type = "pw-global"},
+  }
+}
+local default_metadata = nil
+local function metadata_changed(_metadata, _subject, key, val_type, value)
+  local name = type(value) == "string" and value:match("\"name\": +\"([^\"]+)\"")
+  local name = name and name:len() > 0 and val_type == "Spa:String:JSON" and name
+  print(key, name)
+  if key == "default.audio.source" then
+    -- Its assumed that the events that set the default audio source always come
+    -- after the device that creates that audio source
+    --local translation_target = source_name_to_virtual_source_name[name]
+    if translation_target and default_metadata then
+      --TODO
+    end
+  elseif key == "default.configured.audio.source" then
+    default_metadata = nil
+  end
+end
+metadata_om:connect("object-added", function(_, metadata)
+  default_metadata = metadata
+  metadata:connect("changed", metadata_changed)
+  for subject, key, type, value in metadata:iterate(0) do
+    metadata_changed(metadata, subject, key, type, value)
+  end
+end)
+metadata_om:connect("object-removed", function(_, _metadata)
+  default_metadata = nil
+end)
+metadata_om:activate()
