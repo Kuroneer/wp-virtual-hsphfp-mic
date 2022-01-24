@@ -36,6 +36,10 @@ You can check the proper locations for the scripts in [the doc](https://pipewire
 
 The following configuration items are available (shown with their defaults):
 * `profile_debounce_time_ms: 1000`: ms to wait before executing a profile change
+* `device_priority: nil`: Priority of the virtual device. Higher priorities get
+  selected as default. Default highest priority for bluetooth devices is
+  currently 2010, so a value of 2011 will select the virtual node as default
+  over the traditional mic node.
 
 
 The configuration parameters can be provided to the script from the cli:

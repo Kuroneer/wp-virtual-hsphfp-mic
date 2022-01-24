@@ -174,15 +174,22 @@ bt_devices_om:connect("object-added", function(_, device)
     if profile_to_index["a2dp-sink"] and profile_to_index["headset-head-unit"] then
       Log.debug(device, "Creating dummy HSP/HFP node")
       local device_id = device["bound-id"]
-      local node = Node("adapter", {
+      local device_name = device.properties["device.name"]
+      local properties = {
         ["factory.name"] = "support.null-audio-sink",
         ["media.class"] = "Audio/Source/Virtual",
-        ["node.name"] = device.properties["device.name"]..".virtual_hsphfp_mic",
+        ["node.name"] = device_name..".virtual_hsphfp_mic",
         ["node.description"] = (device.properties["device.description"] or "").." virtual HSP/HFP mic",
         ["audio.position"] = "MONO",
         ["object.linger"] = false, -- Do not keep node if script terminates
         ["device.id"] = device_id,
-      })
+      }
+      local device_priority = config.device_priority
+      device_priority = type(device_priority) == "table" and device_priority[device_name] or device_priority
+      if device_priority then
+        properties["priority.session"] = tonumber(config.device_priority) or 2011 -- bluez default highest priority is 2010
+      end
+      local node = Node("adapter", properties)
       virtual_sources[device_id] = node
       virtual_sources_in_port_id[device_id] = false
       node:connect("ports-changed", function(node)
