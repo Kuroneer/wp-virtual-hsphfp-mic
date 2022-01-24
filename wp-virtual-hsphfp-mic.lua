@@ -82,6 +82,8 @@ local virtual_sources_in_port_id = {}
 local virtual_sources_out_port_om  = {}
 -- BT Device Id to profile change debounce timer (keeps the reference)
 local debounce_timers = {}
+-- BT Device Id to blackout state
+local device_blackout = {}
 
 -- BT Device Id to Real Source node id
 local real_sources_id = {}
@@ -127,11 +129,22 @@ local function maybe_link(device_id)
   end
 end
 
+local function execute_change_profile_in_device_node(device, index)
+  Log.debug(device, "Execute the change")
+  device:set_param("Profile", Pod.Object{"Spa:Pod:Object:Param:Profile", "Profile", index = index})
+end
+
 local function change_profile_in_device_node(device, index)
   local callback = function()
-    Log.debug(device, "Execute the change")
-    device:set_param("Profile", Pod.Object{"Spa:Pod:Object:Param:Profile", "Profile", index = index})
-    replace_destroy(debounce_timers, device["bound-id"], nil)
+    local device_id = device["bound-id"]
+    if device_blackout[device_id] then
+      device_blackout[device_id].callback = function()
+        execute_change_profile_in_device_node(device, index)
+      end
+    else
+      execute_change_profile_in_device_node(device, index)
+    end
+    replace_destroy(debounce_timers, device_id, nil)
     return false
   end
 
@@ -192,6 +205,25 @@ bt_devices_om:connect("object-added", function(_, device)
       local node = Node("adapter", properties)
       virtual_sources[device_id] = node
       virtual_sources_in_port_id[device_id] = false
+
+      -- Device blackout
+      -- For 5s after connection all profile changes are avoided
+      -- to workaround pipewire issues with msbc probe (check
+      -- https://gitlab.freedesktop.org/pipewire/pipewire/-/issues/2030)
+      -- This is done creating a self-deleting timer that executes a
+      -- callback on trigger and checking for its existence before
+      -- executing the profile change
+      device_blackout[device_id] = {
+        callback = function() end,
+        blackout_timer = Core.timeout_add(5000, function()
+          if device_blackout[device_id] then
+            device_blackout[device_id].callback()
+            device_blackout[device_id] = nil
+          end
+          return false
+        end)
+      }
+
       node:connect("ports-changed", function(node)
         Log.debug(device, "Dummy HSP/HFP node ports changed")
         local in_port = node:lookup_port{Constraint{"port.direction", "=", "in"}}
@@ -230,6 +262,10 @@ bt_devices_om:connect("object-removed", function(_, device)
   maybe_link(device_id)
   virtual_sources_out_port_om[device_id] = nil
   replace_destroy(debounce_timers, device_id, nil)
+  if device_blackout[device_id] then
+    device_blackout[device_id].blackout_timer:destroy()
+    device_blackout[device_id] = nil
+  end
 end)
 
 -- When both the virtual node and the headset profile node exist,
