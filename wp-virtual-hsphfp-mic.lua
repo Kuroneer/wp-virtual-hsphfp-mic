@@ -177,7 +177,7 @@ bt_devices_om:connect("object-added", function(_, device)
       local node = Node("adapter", {
         ["factory.name"] = "support.null-audio-sink",
         ["media.class"] = "Audio/Source/Virtual",
-        ["node.name"] = (device.properties["device.alias"] or device.properties["device.name"] or "").." virtual HSP/HFP mic",
+        ["node.name"] = device.properties["device.name"]..".virtual_hsphfp_mic",
         ["node.description"] = (device.properties["device.description"] or "").." virtual HSP/HFP mic",
         ["audio.position"] = "MONO",
         ["object.linger"] = false, -- Do not keep node if script terminates
@@ -260,4 +260,3 @@ end)
 
 sources_om:activate()
 bt_devices_om:activate()
-
