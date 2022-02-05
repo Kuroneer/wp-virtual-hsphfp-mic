@@ -58,41 +58,35 @@ for k, v in pairs(default_config) do
   end
 end
 
-sources_om = ObjectManager {
-  Interest {
-    type = "node",
-    Constraint{"media.class", "=", "Audio/Source"},
-  }
+
+-- BT Device Id to Virtual Source node items
+local virtual_sources = {
+  -- BT Device Id = {
+  --    node = Virtual Source node (keeps the reference alive)
+  --    in_port_id = Virtual Source In Port id
+  --    out_port_om = Virtual Source Out Port OM (keeps the reference alive)
+  -- }
+}
+-- BT Device Id to debounce timers
+local debounce_timers = {
+  -- BT Device Id = Profile change debounce timer (keeps the reference)
 }
 
-bt_devices_om = ObjectManager {
-  Interest {
-    type = "device",
-    Constraint{"media.class", "=", "Audio/Device"},
-    Constraint{"device.api", "=", "bluez5"},
-  }
+local real_sources = {
+  -- BT Device Id = {
+  --    node_id = Real Source Node id
+  --    port_id = Real Source Out port id
+  -- }
 }
 
--- BT Device Id to Virtual Source node (keeps the reference alive)
-local virtual_sources = {}
--- BT Device Id to Virtual Source Port id
-local virtual_sources_in_port_id = {}
+local links = {
+  -- BT Device Id = Link (keeps the reference alive)
+}
 
--- BT Device Id to Virtual Source Out port OM (keeps the reference alive)
-local virtual_sources_out_port_om  = {}
--- BT Device Id to profile change debounce timer (keeps the reference)
-local debounce_timers = {}
-
--- BT Device Id to Real Source node id
-local real_sources_id = {}
--- BT Device Id to Real Source Port id
-local real_sources_port_id  = {}
-
--- BT Device Id to link (keeps the reference alive)
-local links = {}
-
-local function replace_destroy(table, key, value)
+local function replace_destroy(table, key, value, level)
   -- setmetatable unavailable :(
+  level = level or 0
+  if level > 10 then return end
   local obj = table[key]
   if type(obj) == "userdata" then
     if obj.request_destroy then
@@ -100,23 +94,32 @@ local function replace_destroy(table, key, value)
     elseif obj.destroy then
       obj:destroy()
     end
+  elseif type(obj) == "table" then
+    for k in pairs(obj) do
+      replace_destroy(obj, k, nil, level + 1)
+    end
   end
   table[key] = value
 end
 
-local function maybe_link(device_id)
-  local virtual_source = virtual_sources[device_id]
-  local virtual_source_port_id = virtual_sources_in_port_id[device_id]
-  local real_source_id = real_sources_id[device_id]
-  local real_source_port_id = real_sources_port_id[device_id]
+local function get_bound_id(object)
+  return object and object["bound-id"]
+end
+local function get_device_id(object)
+  return object and object.properties and tonumber(object.properties['device.id'])
+end
 
-  if virtual_source and virtual_source_port_id and real_source_id and real_source_port_id then
+local function maybe_link(device_id)
+  local virtual_source = virtual_sources[device_id] or {}
+  local real_source = real_sources[device_id] or {}
+
+  if virtual_source.node and virtual_source.in_port_id and real_source.node_id and real_source.port_id then
     if not links[device_id] then
       local link = Link("link-factory", {
-        ["link.input.node"] = virtual_source["bound-id"],
-        ["link.input.port"] = virtual_source_port_id,
-        ["link.output.node"] = real_source_id,
-        ["link.output.port"] = real_source_port_id,
+        ["link.input.node"] = get_bound_id(virtual_source.node),
+        ["link.input.port"] = virtual_source.in_port_id,
+        ["link.output.node"] = real_source.node_id,
+        ["link.output.port"] = real_source.port_id,
       })
       links[device_id] = link
       link:activate(Feature.Proxy.BOUND)
@@ -127,143 +130,167 @@ local function maybe_link(device_id)
   end
 end
 
-local function change_profile_in_device_node(device, index)
-  local callback = function()
-    Log.debug(device, "Execute the change")
-    device:set_param("Profile", Pod.Object{"Spa:Pod:Object:Param:Profile", "Profile", index = index})
-    replace_destroy(debounce_timers, device["bound-id"], nil)
-    return false
+
+do
+  -- Device profile is changed based on links
+  -- There's a debounce timer to avoid too frequent changes
+  local function change_profile_in_device_node(device, index)
+    local callback = function()
+      Log.debug(device, "Execute the change")
+      device:set_param("Profile", Pod.Object{"Spa:Pod:Object:Param:Profile", "Profile", index = index})
+      replace_destroy(debounce_timers, get_bound_id(device), nil)
+      return false
+    end
+
+    local timeout = config.profile_debounce_time_ms
+    if timeout > 0 then
+      replace_destroy(debounce_timers, get_bound_id(device), Core.timeout_add(timeout, callback))
+    else
+      callback()
+    end
   end
 
-  local timeout = config.profile_debounce_time_ms
-  if timeout > 0 then
-    replace_destroy(debounce_timers, device["bound-id"], Core.timeout_add(timeout, callback))
-  else
-    callback()
+  local function generate_change_profile_based_on_links_fun(device, profile_to_index, decreasing)
+    -- Keeps a reference to device as upvalue, but with the device removal
+    -- the om is removed too (and thus these callbacks)
+    return function(om)
+      if (virtual_sources[get_bound_id(device)] or {}).out_port_om ~= om then
+        -- The active OM is not the one this callback is for, it's going to be
+        -- deleted shortly
+        return
+      end
+      local n_objects = om:get_n_objects()
+      if n_objects == 0 then
+        Log.debug(device, "Schedule change to a2dp")
+        change_profile_in_device_node(device, profile_to_index["a2dp-sink"])
+      elseif n_objects == 1 and not decreasing then
+        Log.debug(device, "Schedule change to HSP/HFP")
+        change_profile_in_device_node(device, profile_to_index["headset-head-unit"])
+      end
+    end
   end
+
+  -- Virtual source node is created for those devices that support
+  -- both a2dp and headset profiles
+  -- The node is deleted when the device is removed
+  bt_devices_om = ObjectManager {
+    Interest {
+      type = "device",
+      Constraint{"media.class", "=", "Audio/Device"},
+      Constraint{"device.api", "=", "bluez5"},
+    }
+  }
+  bt_devices_om:connect("object-added", function(_, device)
+    local profile_to_index = {}
+    for profile in device:iterate_params("EnumProfile") do
+      profile = profile:parse()
+      profile_to_index[profile.properties.name] = profile.properties.index
+      if profile_to_index["a2dp-sink"] and profile_to_index["headset-head-unit"] then
+        Log.debug(device, "Creating dummy HSP/HFP node")
+        local device_id = get_bound_id(device)
+        local device_name = device.properties["device.name"]
+        local properties = {
+          ["factory.name"] = "support.null-audio-sink",
+          ["media.class"] = "Audio/Source/Virtual",
+          ["node.name"] = device_name..".virtual_hsphfp_mic",
+          ["node.description"] = (device.properties["device.description"] or "").." virtual HSP/HFP mic",
+          ["audio.position"] = "MONO",
+          ["object.linger"] = false, -- Do not keep node if script terminates
+          ["device.id"] = device_id,
+        }
+        local device_priority = config.device_priority
+        device_priority = type(device_priority) == "table" and device_priority[device_name] or device_priority
+        if device_priority then
+          properties["priority.session"] = tonumber(config.device_priority) or 2011 -- bluez default highest priority is 2010
+        end
+        local node = Node("adapter", properties)
+        local virtual_source = {node = node}
+        replace_destroy(virtual_sources, device_id, virtual_source)
+
+        node:connect("ports-changed", function(node)
+          -- Even if this triggers after the node destruction has been
+          -- requested it does not matter because the globals have been
+          -- removed (virtual_sources) or are no longer valid (device)
+          Log.debug(device, "Dummy HSP/HFP node ports changed")
+          -- Modify link status
+          virtual_source.in_port_id = get_bound_id(node:lookup_port{Constraint{"port.direction", "=", "in"}})
+          maybe_link(device_id)
+
+          -- Monitor number of links for clients in the virtual node
+          local out_port = node:lookup_port{Constraint{"port.direction", "=", "out"}}
+          if out_port then
+            local om = ObjectManager{
+              Interest{
+                type = "Link",
+                Constraint{"link.output.node", "=", get_bound_id(node)},
+                Constraint{"link.output.port", "=", get_bound_id(out_port)},
+              }
+            }
+            virtual_source.out_port_om = om
+            om:connect("object-added", generate_change_profile_based_on_links_fun(device, profile_to_index))
+            om:connect("object-removed", generate_change_profile_based_on_links_fun(device, profile_to_index, true))
+            om:connect("installed", generate_change_profile_based_on_links_fun(device, profile_to_index))
+            om:activate()
+          else
+            virtual_source.out_port_om = nil
+            replace_destroy(debounce_timers, device_id, nil)
+          end
+        end)
+        node:activate(Features.ALL)
+        break
+      end
+    end
+  end)
+  bt_devices_om:connect("object-removed", function(_, device)
+    local device_id = get_bound_id(device)
+    replace_destroy(virtual_sources, device_id, nil)
+    maybe_link(device_id)
+    replace_destroy(debounce_timers, device_id, nil)
+  end)
+  bt_devices_om:activate()
 end
 
-local function generate_change_profile_based_on_links_fun(device, profile_to_index, decreasing)
-  -- Keeps a reference to device as a upvalue, but with the device removal
-  -- the om is removed too
-  return function(om)
-    if virtual_sources_out_port_om[device["bound-id"]] ~= om then
-      -- The active OM is not the one this callback is for, it's going to be
-      -- deleted shortly
+do
+  -- When both the virtual node and the headset profile node exist,
+  -- they are linked together
+
+  local function ports_changed_callback(source)
+    local device_id = get_device_id(source)
+    local real_source = real_sources[device_id]
+    if (real_source or {}).node_id == get_bound_id(source) then -- Protect against race conditions
+      real_source.port_id = get_bound_id(source:lookup_port{Constraint{"port.direction", "=", "out"}})
+      Log.debug(source, "Real HSP/HFP node ports changed")
+      maybe_link(device_id)
+    end
+  end
+
+  sources_om = ObjectManager {
+    Interest {
+      type = "node",
+      Constraint{"media.class", "=", "Audio/Source"},
+    }
+  }
+  sources_om:connect("object-added", function(_, source)
+    local device_id = get_device_id(source)
+    if not virtual_sources[device_id] then
       return
     end
-    local n_objects = om:get_n_objects()
-    if n_objects == 0 then
-      Log.debug(device, "Schedule change to a2dp")
-      change_profile_in_device_node(device, profile_to_index["a2dp-sink"])
-    elseif n_objects == 1 and not decreasing then
-      Log.debug(device, "Schedule change to HSP/HFP")
-      change_profile_in_device_node(device, profile_to_index["headset-head-unit"])
-    end
-  end
-end
-
--- Virtual source node is created for those devices that support
--- both a2dp and headset profiles
--- The node is deleted when the device is removed
-bt_devices_om:connect("object-added", function(_, device)
-  local profile_to_index = {}
-  for profile in device:iterate_params("EnumProfile") do
-    profile = profile:parse()
-    profile_to_index[profile.properties.name] = profile.properties.index
-    if profile_to_index["a2dp-sink"] and profile_to_index["headset-head-unit"] then
-      Log.debug(device, "Creating dummy HSP/HFP node")
-      local device_id = device["bound-id"]
-      local device_name = device.properties["device.name"]
-      local properties = {
-        ["factory.name"] = "support.null-audio-sink",
-        ["media.class"] = "Audio/Source/Virtual",
-        ["node.name"] = device_name..".virtual_hsphfp_mic",
-        ["node.description"] = (device.properties["device.description"] or "").." virtual HSP/HFP mic",
-        ["audio.position"] = "MONO",
-        ["object.linger"] = false, -- Do not keep node if script terminates
-        ["device.id"] = device_id,
-      }
-      local device_priority = config.device_priority
-      device_priority = type(device_priority) == "table" and device_priority[device_name] or device_priority
-      if device_priority then
-        properties["priority.session"] = tonumber(config.device_priority) or 2011 -- bluez default highest priority is 2010
-      end
-      local node = Node("adapter", properties)
-      virtual_sources[device_id] = node
-      virtual_sources_in_port_id[device_id] = false
-      node:connect("ports-changed", function(node)
-        Log.debug(device, "Dummy HSP/HFP node ports changed")
-        local in_port = node:lookup_port{Constraint{"port.direction", "=", "in"}}
-        virtual_sources_in_port_id[device_id] = in_port and in_port["bound-id"]
-        maybe_link(device_id)
-
-        -- Monitor number of links for clients in the virtual node
-        local out_port = node:lookup_port{Constraint{"port.direction", "=", "out"}}
-        if out_port then
-          local om = ObjectManager{
-            Interest{
-              type = "Link",
-              Constraint{"link.output.node", "=", node["bound-id"]},
-              Constraint{"link.output.port", "=", out_port["bound-id"]},
-            }
-          }
-          virtual_sources_out_port_om[device_id] = om
-          om:connect("object-added", generate_change_profile_based_on_links_fun(device, profile_to_index))
-          om:connect("object-removed", generate_change_profile_based_on_links_fun(device, profile_to_index, true))
-          om:connect("installed", generate_change_profile_based_on_links_fun(device, profile_to_index))
-          om:activate()
-        else
-          virtual_sources_out_port_om[device_id] = nil
-          replace_destroy(debounce_timers, device_id, nil)
-        end
-      end)
-      node:activate(Features.ALL)
-      break
-    end
-  end
-end)
-bt_devices_om:connect("object-removed", function(_, device)
-  local device_id = device["bound-id"]
-  replace_destroy(virtual_sources, device_id, nil)
-  virtual_sources_in_port_id[device_id] = nil
-  maybe_link(device_id)
-  virtual_sources_out_port_om[device_id] = nil
-  replace_destroy(debounce_timers, device_id, nil)
-end)
-
--- When both the virtual node and the headset profile node exist,
--- they are linked together
-sources_om:connect("object-added", function(_, source)
-  local device_id = tonumber(source.properties['device.id'])
-  if not virtual_sources[device_id] then
-    return
-  end
-  -- A Source was added with its device matching one of
-  -- the interesting ones
-  -- It's assumed that the device event is always triggered
-  -- before this source's
-  Log.debug(source, "Virtual source found")
-  real_sources_id[device_id] = source["bound-id"]
-  source:connect("ports-changed", function(source)
-    local device_id = tonumber(source.properties['device.id'])
-    local port = source:lookup_port{Constraint{"port.direction", "=", "out"}}
-    real_sources_port_id[device_id] = port and port["bound-id"]
-    Log.debug(source, "Real HSP/HFP node ports changed")
-    maybe_link(device_id)
+    -- A Source was added with its device matching one of
+    -- the interesting ones
+    -- It's assumed that the device event is always triggered
+    -- before this source's
+    Log.debug(source, "Virtual source found")
+    replace_destroy(real_sources, device_id, {node_id = get_bound_id(source)})
+    source:connect("ports-changed", ports_changed_callback)
+    ports_changed_callback(source)
   end)
-  local port = source:lookup_port{Constraint{"port.direction", "=", "out"}}
-  real_sources_port_id[device_id] = port and port["bound-id"]
-  maybe_link(device_id)
-end)
-sources_om:connect("object-removed", function(_, source)
-  local device_id = tonumber(source.properties['device.id'])
-  if real_sources_id[device_id] == source["bound-id"] then
-    real_sources_id[device_id] = nil
-    real_sources_port_id[device_id] = nil
-    maybe_link(device_id)
-  end
-end)
-
-sources_om:activate()
-bt_devices_om:activate()
+  sources_om:connect("object-removed", function(_, source)
+    local device_id = get_device_id(source)
+    if (real_source or {}).node_id == get_bound_id(source) then -- Protect against race conditions
+      Log.debug(source, "Remove")
+      replace_destroy(real_sources, device_id, nil)
+      maybe_link(device_id)
+    end
+  end)
+  sources_om:activate()
+end
