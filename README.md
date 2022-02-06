@@ -47,6 +47,17 @@ The configuration parameters can be provided to the script from the cli:
 or from the configuration files:
 `sudo tee <<< 'load_script("wp-virtual-hsphfp-mic.lua", {profile_debounce_time_ms = 4000})' /etc/wireplumber/bluetooth.lua.d/99-load-hsphfp-virtual-mic.lua`
 
+## "Conflict" with wireplumber's role-based bluetooth profile switch
+
+From wireplumber's version 0.4.8 on, it will most likely include its own
+role-based bluetooth profile switch. Both plugins act independent of each
+other and it may cause the profile to switch when you would not expect it
+to (like using an external mic while on bt headphones).
+
+If that turns out to be an issue for you, you should consider either
+disabling wireplumber's role-based profile swith or uninstalling this
+plugin
+
 ## Authors
 
 * **Jose M Perez Ramos** - [Kuroneer](https://github.com/Kuroneer)
