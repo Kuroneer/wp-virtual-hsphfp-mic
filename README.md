@@ -11,7 +11,7 @@ Thus, you only need to configure the virtual mic as a source in your application
 and when these applications connect to the virtual mic the profile is automatically
 changed.
 
-This script has been tested to work with wireplumber version 0.4.7
+This script has been tested to work with wireplumber version 0.4.8
 
 ## Getting Started
 
@@ -37,7 +37,7 @@ You can check the proper locations for the scripts in [the doc](https://pipewire
 The following configuration items are available (shown with their defaults):
 * `profile_debounce_time_ms: 1000`: ms to wait before executing a profile change
 * `device_priority: nil`: Priority of the virtual device. Higher priorities get
-  selected as default. Default highest priority for bluetooth devices is
+  selected as default stream. Default highest priority for bluetooth devices is
   currently 2010, so a value of 2011 will select the virtual node as default
   over the traditional mic node.
 
@@ -49,14 +49,24 @@ or from the configuration files:
 
 ## "Conflict" with wireplumber's role-based bluetooth profile switch
 
-From wireplumber's version 0.4.8 on, it will most likely include its own
+From wireplumber's version 0.4.8 on, it includes its own
 role-based bluetooth profile switch. Both plugins act independent of each
 other and it may cause the profile to switch when you would not expect it
 to (like using an external mic while on bt headphones).
 
-If that turns out to be an issue for you, you should consider either
+If that turns out to be an issue for you, consider either
 disabling wireplumber's role-based profile swith or uninstalling this
-plugin
+plugin.
+
+The simplest way to disable that functionality from wireplumber is by
+overriding its `policy-bluetooth.lua` script by placing an empty
+`policy-bluetooth.lua` alongside the `wp-virtual-hsphfp-mic.lua`. E.g,
+with the command above you could do:
+```shell
+sudo touch /etc/wireplumber/scripts/policy-bluetooth.lua
+```
+Just by removing this file you will revert back to the default behaviour.
+
 
 ## Authors
 
