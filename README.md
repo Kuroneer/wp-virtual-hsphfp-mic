@@ -67,7 +67,6 @@ sudo touch /etc/wireplumber/scripts/policy-bluetooth.lua
 ```
 Just by removing this file you will revert back to the default behaviour.
 
-
 ## Authors
 
 * **Jose M Perez Ramos** - [Kuroneer](https://github.com/Kuroneer)
