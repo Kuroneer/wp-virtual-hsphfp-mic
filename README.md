@@ -1,5 +1,7 @@
 # WP Virtual HSP/HFP mic
 
+**Archived: Behaviour added to base wireplumber in [0.4.82](https://pipewire.pages.freedesktop.org/wireplumber/resources/releases.html#wireplumber-0-4-82)**
+
 This is a wireplumber standalone script or plugin that creates a virtual
 mic for every bluetooth device that supports both HSP/HFP and A2DP profiles.
 
